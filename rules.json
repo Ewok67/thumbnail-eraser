@@ -5,7 +5,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "regexSubstitution": "https://www.youtube.com/"
+        "url": "https://www.youtube.com/"
       }
     },
     "condition": {
@@ -20,7 +20,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "regexSubstitution": "https://www.youtube.com/"
+        "url": "https://www.youtube.com/"
       }
     },
     "condition": {
