@@ -1,65 +1,80 @@
-// Thumbnail Eraser — Background Service Worker
-// Manages badge, context menu, and initial state.
-
-const STORAGE_KEY = 'thumbnailEraserEnabled';
+// Thumbnail Eraser - Background Service Worker
+// Handles context menus, badge updates, and icon state
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Create context menu for quick toggle
   chrome.contextMenus.create({
-    id: 'thumbnailEraserToggle',
-    title: 'Toggle Thumbnail Eraser',
-    contexts: ['all']
+    id: 'toggleMidpointThumbnails',
+    title: 'Toggle Midpoint Thumbnails',
+    contexts: ['all'],
+    documentUrlPatterns: ['*://*.youtube.com/*']
   });
-  updateBadge();
+
+  // Set initial badge
+  updateBadge(false);
 });
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'thumbnailEraserToggle') {
-    toggleState(tab);
-  }
-});
-
-chrome.action.onClicked.addListener((tab) => {
-  // Only fires when no default_popup is set; kept for completeness.
-  toggleState(tab);
-});
-
-async function toggleState(tab) {
-  const result = await chrome.storage.sync.get(STORAGE_KEY);
-  const newState = !result[STORAGE_KEY];
-  await chrome.storage.sync.set({ [STORAGE_KEY]: newState });
-  updateBadge();
-
-  if (tab && tab.url && /youtube\.com/.test(tab.url)) {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'toggleMidpointThumbnails' && tab?.id) {
     try {
-      await chrome.tabs.sendMessage(tab.id, { action: newState ? 'start' : 'stop' });
-    } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: newState ? injectReplace : injectRestore
-      });
+      const { enabled = false } = await chrome.storage.sync.get('enabled');
+      const newState = !enabled;
+      
+      await chrome.storage.sync.set({ enabled: newState });
+      updateBadge(newState);
+      
+      // Inject into the tab
+      if (newState) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectReplaceThumbnails
+        });
+      } else {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectRestoreThumbnails
+        });
+      }
+    } catch (err) {
+      console.error('[Thumbnail Eraser] Context menu toggle failed:', err);
     }
   }
-}
+});
 
-async function updateBadge() {
-  const result = await chrome.storage.sync.get(STORAGE_KEY);
-  const enabled = result[STORAGE_KEY] === true;
-  chrome.action.setBadgeText({ text: enabled ? 'ON' : '' });
-  chrome.action.setBadgeBackgroundColor({ color: enabled ? '#ff0000' : '#888888' });
-}
-
-// Listen for storage changes (e.g., from options page)
+// Listen for storage changes to update badge
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync' && changes[STORAGE_KEY]) {
-    updateBadge();
+  if (area === 'sync' && changes.enabled) {
+    updateBadge(changes.enabled.newValue);
   }
 });
 
-// Fallback injection functions
-function injectReplace() {
+// Update badge text based on state
+function updateBadge(enabled) {
+  chrome.action.setBadgeText({
+    text: enabled ? 'ON' : ''
+  });
+  chrome.action.setBadgeBackgroundColor({
+    color: enabled ? '#ff0000' : '#333'
+  });
+}
+
+// Injected functions for context menu
+function injectReplaceThumbnails() {
   window.dispatchEvent(new CustomEvent('thumbnailEraserStart'));
 }
 
-function injectRestore() {
+function injectRestoreThumbnails() {
   window.dispatchEvent(new CustomEvent('thumbnailEraserStop'));
 }
+
+// Handle tab updates to sync badge
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url?.includes('youtube.com')) {
+    try {
+      const { enabled = false } = await chrome.storage.sync.get('enabled');
+      updateBadge(enabled);
+    } catch (err) {
+      // Ignore
+    }
+  }
+});

@@ -1,184 +1,215 @@
-// Thumbnail Eraser — Content Script
-// Replaces YouTube thumbnails with the highest-quality frame available for each video.
-// SPA-aware: watches for navigation and DOM mutations.
+// Thumbnail Eraser - Content Script
+// Replaces YouTube thumbnails with HIGH-QUALITY midpoint frames from the video
+// Based on honest-thumbnails approach: maxres1/2/3.jpg (1280x720) and hq1/2/3.jpg (480x360)
 
-const REPLACEMENT_URL = 'https://i.ytimg.com/vi/default/default.jpg';
-const STORAGE_KEY = 'thumbnailEraserEnabled';
+(() => {
+  'use strict';
 
-let enabled = false;
-let observer = null;
-let urlObserver = null;
-let lastUrl = window.location.href;
+  const DEFAULTS = { enabled: false, frame: 2 }; // frame: 1=early(25%), 2=mid(50%), 3=late(75%)
+  const ORIGIN = 'https://i.ytimg.com';
 
-// Extract video ID from URL or page state
-function getVideoId() {
-  const url = new URL(window.location.href);
-  if (url.pathname.includes('/watch')) {
-    return url.searchParams.get('v');
-  }
-  if (url.pathname.includes('/embed/')) {
-    return url.pathname.split('/')[2];
-  }
-  if (url.pathname.includes('/shorts/')) {
-    return url.pathname.split('/')[2];
-  }
-  if (url.hostname === 'youtu.be') {
-    return url.pathname.slice(1);
-  }
-  // Try meta tag
-  const meta = document.querySelector('meta[itemprop="videoId"]');
-  if (meta) return meta.getAttribute('content');
-  // Try ytInitialPlayerResponse in script tags
-  const scripts = document.querySelectorAll('script');
-  for (const s of scripts) {
-    const m = s.textContent.match(/"videoId"\s*:\s*"([^"]+)"/);
-    if (m) return m[1];
-  }
-  return null;
-}
+  // Match YouTube thumbnail URLs: //i.ytimg.com/vi/VIDEO_ID/NAME.jpg or webp
+  // Also handles i1.ytimg.com, i2.ytimg.com, etc. and vi_webp
+  const THUMB_RE = /^(?:https?:)?\/\/i\d*\.ytimg\.com\/vi(?:_webp)?\/([\w-]{11})\/(\w+)\.(?:jpg|webp)/;
+  
+  // Auto-generated frame names we should NOT replace (already midpoint frames)
+  const AUTO_FRAME_RE = /^(?:hq|mq|sd|maxres|oar|hq720_)?[123]$/;
+  
+  // Extract URL from CSS background-image: url("...")
+  const CSS_URL_RE = /url\(\s*["']?([^"')]+)["']?\s*\)/;
+  
+  // YouTube serves 120x90 grey placeholder for missing frames
+  const PLACEHOLDER_WIDTH = 120;
 
-// Find all YouTube thumbnail images
-function findThumbnails() {
-  const imgs = Array.from(document.querySelectorAll('img'));
-  return imgs.filter(img => {
-    const src = img.src || img.getAttribute('src') || '';
-    return src.includes('i.ytimg.com/vi/');
-  });
-}
+  let settings = { ...DEFAULTS };
+  const cache = new Map(); // "videoId:frame" -> Promise<url | null>
 
-// Replace thumbnails
-function replaceThumbnails() {
-  if (!enabled) return;
-  const imgs = findThumbnails();
-  for (const img of imgs) {
-    if (!img.dataset.thumbnailEraserOriginal) {
-      img.dataset.thumbnailEraserOriginal = img.src || '';
-      if (img.srcset) {
-        img.dataset.thumbnailEraserSrcset = img.srcset;
-        img.srcset = '';
+  // ---- Frame Resolution ----
+  function probe(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // REQUIRED for cross-origin naturalWidth
+      img.onload = () => resolve(img.naturalWidth > PLACEHOLDER_WIDTH);
+      img.onerror = () => resolve(false);
+      img.src = url;
+    });
+  }
+
+  async function resolveFrame(videoId, frame) {
+    const key = `${videoId}:${frame}`;
+    let promise = cache.get(key);
+    if (!promise) {
+      promise = (async () => {
+        // Try HD first, then fallback to HQ
+        for (const name of [`maxres${frame}`, `hq${frame}`]) {
+          const url = `${ORIGIN}/vi/${videoId}/${name}.jpg`;
+          if (await probe(url)) return url;
+        }
+        return null;
+      })();
+      cache.set(key, promise);
+    }
+    return promise;
+  }
+
+  function parseThumb(url) {
+    const m = url && THUMB_RE.exec(url);
+    if (!m || AUTO_FRAME_RE.test(m[2])) return null;
+    return m[1]; // videoId
+  }
+
+  // ---- <img> thumbnails ----
+  function processImg(img) {
+    const src = img.getAttribute('src') || '';
+    if (img.dataset.teHonest && src === img.dataset.teHonest) return; // already ours
+
+    // New src from YouTube - forget any state from previous swap
+    delete img.dataset.teHonest;
+    delete img.dataset.teHonestSrcset;
+
+    const videoId = parseThumb(src);
+    if (!videoId) {
+      delete img.dataset.teHonestOrig;
+      return;
+    }
+
+    img.dataset.teHonestOrig = src;
+    const frame = settings.frame;
+    
+    resolveFrame(videoId, frame).then((url) => {
+      if (!url || !settings.enabled || settings.frame !== frame) return;
+      if (img.getAttribute('src') !== src) return; // recycled while probing
+      
+      img.dataset.teHonest = url; // mark before setting src so observer skips it
+      if (img.hasAttribute('srcset')) {
+        img.dataset.teHonestSrcset = img.getAttribute('srcset');
+        img.removeAttribute('srcset');
       }
-      const vid = getVideoId();
-      if (vid) {
-        // Per-video fallback chain: maxres → sd → hq → mq
-        const bases = [
-          `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
-          `https://i.ytimg.com/vi/${vid}/sddefault.jpg`,
-          `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
-          `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`
-        ];
-        let idx = 0;
-        const tryNext = () => {
-          if (idx < bases.length) {
-            img.src = bases[idx++];
-          }
-        };
-        tryNext();
-        img.onerror = tryNext;
-      } else {
-        img.src = REPLACEMENT_URL;
+      img.src = url;
+    });
+  }
+
+  function restoreSrcset(img) {
+    if (img.dataset.teHonestSrcset !== undefined) {
+      img.setAttribute('srcset', img.dataset.teHonestSrcset);
+      delete img.dataset.teHonestSrcset;
+    }
+  }
+
+  // ---- background-image thumbnails (player poster, end-screen wall) ----
+  function processBg(el) {
+    const style = el.getAttribute('style');
+    if (!style || !style.includes('ytimg.com')) return;
+    
+    const bg = el.style.backgroundImage;
+    const m = bg && CSS_URL_RE.exec(bg);
+    if (!m) return;
+    
+    const current = m[1];
+    if (el.dataset.teHonestBg && current === el.dataset.teHonestBg) return; // already ours
+
+    delete el.dataset.teHonestBg;
+    const videoId = parseThumb(current);
+    if (!videoId) {
+      delete el.dataset.teHonestBgOrig;
+      return;
+    }
+
+    el.dataset.teHonestBgOrig = bg;
+    const frame = settings.frame;
+    
+    resolveFrame(videoId, frame).then((url) => {
+      if (!url || !settings.enabled || settings.frame !== frame) return;
+      if (el.style.backgroundImage !== bg) return;
+      
+      el.dataset.teHonestBg = url;
+      el.style.backgroundImage = `url("${url}")`;
+    });
+  }
+
+  // ---- Scanning & Observing ----
+  function scan(root) {
+    if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) return;
+    if (root.tagName === 'IMG') processImg(root);
+    else if (root.getAttribute?.('style')) processBg(root);
+    
+    // Scan all img with ytimg.com/vi in src
+    for (const img of root.querySelectorAll('img[src*="ytimg.com/vi"]')) processImg(img);
+    // Scan all elements with ytimg.com/vi in style
+    for (const el of root.querySelectorAll('[style*="ytimg.com/vi"]')) processBg(el);
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    if (!settings.enabled) return;
+    for (const m of mutations) {
+      if (m.type === 'attributes') {
+        if (m.attributeName === 'src') {
+          if (m.target.tagName === 'IMG') processImg(m.target);
+        } else if (m.attributeName === 'style') {
+          processBg(m.target);
+        }
+      } else if (m.type === 'childList') {
+        for (const node of m.addedNodes) scan(node);
       }
     }
-  }
-}
-
-// Restore original thumbnails
-function restoreThumbnails() {
-  const imgs = document.querySelectorAll('img[data-thumbnail-eraser-original]');
-  for (const img of imgs) {
-    if (img.dataset.thumbnailEraserOriginal) {
-      img.src = img.dataset.thumbnailEraserOriginal;
-      delete img.dataset.thumbnailEraserOriginal;
-    }
-    if (img.dataset.thumbnailEraserSrcset) {
-      img.srcset = img.dataset.thumbnailEraserSrcset;
-      delete img.dataset.thumbnailEraserSrcset;
-    }
-  }
-}
-
-// Start observers
-function startObservers() {
-  if (observer) return;
-  // DOM mutation observer — catches new thumbnails as they load
-  observer = new MutationObserver(() => {
-    if (enabled) replaceThumbnails();
-  });
-  observer.observe(document.body || document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['src', 'srcset']
   });
 
-  // URL change observer — catches SPA navigations via popstate + polling fallback
-  let urlCheckInterval = null;
-  const checkUrl = () => {
-    const currentUrl = window.location.href;
-    if (currentUrl !== lastUrl) {
-      lastUrl = currentUrl;
-      if (enabled) {
-        restoreThumbnails();
-        setTimeout(replaceThumbnails, 300);
-      }
+  function revertAll() {
+    // Restore <img> elements
+    for (const img of document.querySelectorAll('img[data-te-honest-orig]')) {
+      const ours = img.dataset.teHonest;
+      const orig = img.dataset.teHonestOrig;
+      delete img.dataset.teHonest;
+      delete img.dataset.teHonestOrig;
+      restoreSrcset(img);
+      if (ours && img.getAttribute('src') === ours) img.src = orig;
     }
-  };
-  window.addEventListener('popstate', checkUrl);
-  urlCheckInterval = setInterval(checkUrl, 1000);
-  urlObserver = {
-    disconnect: () => {
-      window.removeEventListener('popstate', checkUrl);
-      if (urlCheckInterval) clearInterval(urlCheckInterval);
-      urlCheckInterval = null;
+    // Restore background-image elements
+    for (const el of document.querySelectorAll('[data-te-honest-bg-orig]')) {
+      const ours = el.dataset.teHonestBg;
+      const orig = el.dataset.teHonestBgOrig;
+      delete el.dataset.teHonestBg;
+      delete el.dataset.teHonestBgOrig;
+      if (ours && el.style.backgroundImage.includes(ours)) el.style.backgroundImage = orig;
     }
-  };
-}
-
-// Stop observers
-function stopObservers() {
-  if (observer) {
-    observer.disconnect();
-    observer = null;
   }
-  if (urlObserver) {
-    urlObserver.disconnect();
-    urlObserver = null;
+
+  function start() {
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['src', 'style'],
+    });
+    if (settings.enabled) scan(document);
   }
-}
 
-// Load state and apply
-async function init() {
-  const result = await chrome.storage.sync.get(STORAGE_KEY);
-  enabled = result[STORAGE_KEY] === true;
-  if (enabled) {
-    replaceThumbnails();
-    startObservers();
-  }
-}
+  // ---- Storage & Events ----
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    for (const [key, { newValue }] of Object.entries(changes)) {
+      if (key in DEFAULTS) settings[key] = newValue ?? DEFAULTS[key];
+    }
+    revertAll();
+    if (settings.enabled) scan(document);
+  });
 
-// Listen for toggle messages
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'start') {
-    setEnabled(true);
-  } else if (msg.action === 'stop') {
-    setEnabled(false);
-  }
-  sendResponse({ ok: true });
-});
+  // Listen for popup toggle via CustomEvent
+  window.addEventListener('thumbnailEraserStart', () => {
+    settings.enabled = true;
+    chrome.storage.sync.set({ enabled: true });
+    scan(document);
+  });
+  
+  window.addEventListener('thumbnailEraserStop', () => {
+    settings.enabled = false;
+    chrome.storage.sync.set({ enabled: false });
+    revertAll();
+  });
 
-// Fallback: listen for custom events from executeScript injection
-window.addEventListener('thumbnailEraserStart', () => setEnabled(true));
-window.addEventListener('thumbnailEraserStop', () => setEnabled(false));
-
-function setEnabled(state) {
-  enabled = state;
-  if (enabled) {
-    replaceThumbnails();
-    startObservers();
-  } else {
-    restoreThumbnails();
-    stopObservers();
-  }
-}
-
-// Run on load
-init();
+  // Initialize
+  chrome.storage.sync.get(DEFAULTS, (stored) => {
+    settings = { ...DEFAULTS, ...stored };
+    start();
+  });
+})();
