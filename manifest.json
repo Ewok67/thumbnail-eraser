@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Thumbnail Eraser",
-  "version": "1.0.0",
-  "description": "Replace YouTube thumbnails with midpoint frames from the video. Toggle between original and midpoint thumbnails.",
+  "version": "1.1.0",
+  "description": "Replace YouTube thumbnails with midpoint frames from the video. Block YouTube Shorts. Toggle between original and midpoint thumbnails.",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "*://*.youtube.com/*"
@@ -34,5 +35,14 @@
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "shorts_redirect_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
   }
 }

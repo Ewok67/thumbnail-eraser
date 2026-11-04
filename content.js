@@ -1,11 +1,16 @@
 // Thumbnail Eraser - Content Script
 // Replaces YouTube thumbnails with HIGH-QUALITY midpoint frames from the video
+// Blocks YouTube Shorts
 // Based on honest-thumbnails approach: maxres1/2/3.jpg (1280x720) and hq1/2/3.jpg (480x360)
 
 (() => {
   'use strict';
 
-  const DEFAULTS = { enabled: false, frame: 2 }; // frame: 1=early(25%), 2=mid(50%), 3=late(75%)
+  const DEFAULTS = { 
+    enabled: false, 
+    frame: 2,           // frame: 1=early(25%), 2=mid(50%), 3=late(75%)
+    shortsBlocked: true // Block Shorts by default
+  };
   const ORIGIN = 'https://i.ytimg.com';
 
   // Match YouTube thumbnail URLs: //i.ytimg.com/vi/VIDEO_ID/NAME.jpg or webp
@@ -23,6 +28,7 @@
 
   let settings = { ...DEFAULTS };
   const cache = new Map(); // "videoId:frame" -> Promise<url | null>
+  let shortsObserver = null;
 
   // ---- Frame Resolution ----
   function probe(url) {
@@ -127,6 +133,118 @@
     });
   }
 
+  // ---- Shorts Blocking ----
+  const SHORTS_SELECTORS = [
+    // Shelves/carousels
+    'ytd-reel-shelf-renderer',
+    'ytd-reel-item-renderer',
+    'ytd-rich-shelf-renderer:has(a[href*="/shorts/"])',
+    'grid-shelf-view-model',
+    
+    // Individual video renderers with Shorts links
+    'ytd-rich-item-renderer:has(a[href*="/shorts/"])',
+    'ytd-grid-video-renderer:has(a[href*="/shorts/"])',
+    'ytd-video-renderer:has(a[href*="/shorts/"])',
+    'ytd-compact-video-renderer:has(a[href*="/shorts/"])',
+    'ytd-video-preview:has(a[href*="/shorts/"])',
+    
+    // Sidebar tabs
+    'ytd-mini-guide-entry-renderer[aria-label="Shorts"]',
+    'ytd-guide-entry-renderer a[title="Shorts"]',
+    
+    // Chips/filter bar
+    'yt-chip-cloud-chip-renderer:has(yt-formatted-string[title="Shorts"])',
+    '#chips > yt-chip-cloud-renderer:nth-child(2)',
+  ].join(', ');
+
+  const SHORTS_LINK_SELECTOR = 'a[href*="/shorts/"]';
+
+  function removeShortsElements(root = document) {
+    if (!settings.shortsBlocked) return;
+    
+    let removedCount = 0;
+    
+    // Remove main Shorts containers
+    for (const selector of SHORTS_SELECTORS.split(', ')) {
+      try {
+        const elements = root.querySelectorAll(selector);
+        elements.forEach(el => {
+          if (el && el.isConnected) {
+            // For grid-shelf-view-model, check if it's actually Shorts
+            if (selector === 'grid-shelf-view-model') {
+              const header = el.querySelector('yt-section-header-view-model yt-shelf-header-layout h2 > span');
+              if (!header || header.textContent.trim() !== 'Shorts') return;
+            }
+            el.remove();
+            removedCount++;
+          }
+        });
+      } catch (e) {
+        // Invalid selector, skip
+      }
+    }
+    
+    // Remove individual Shorts videos by link
+    try {
+      const shortsLinks = root.querySelectorAll(SHORTS_LINK_SELECTOR);
+      shortsLinks.forEach(link => {
+        if (!link.href || !link.href.includes('/shorts/')) return;
+        
+        // Find the video container
+        const container = link.closest(
+          'ytd-video-renderer, ytd-compact-video-renderer, ' +
+          'ytd-rich-item-renderer, ytd-reel-item-renderer, ' +
+          'ytd-grid-video-renderer, ytd-video-preview'
+        );
+        
+        if (container && container.isConnected && container.offsetParent !== null) {
+          container.style.display = 'none';
+          container.dataset.teShortsHidden = 'true';
+          removedCount++;
+        } else if (link.offsetParent !== null && link.style.display !== 'none') {
+          // Fallback: hide the link itself
+          link.style.display = 'none';
+          link.dataset.teShortsHidden = 'true';
+          removedCount++;
+        }
+      });
+    } catch (e) {
+      // Ignore
+    }
+    
+    if (removedCount > 0) {
+      console.log(`[Thumbnail Eraser] Hidden ${removedCount} Shorts elements`);
+    }
+  }
+
+  function restoreShortsElements() {
+    // Restore hidden containers
+    for (const el of document.querySelectorAll('[data-te-shorts-hidden]')) {
+      if (el.isConnected) {
+        el.style.display = '';
+        delete el.dataset.teShortsHidden;
+      }
+    }
+    // Restore hidden links
+    for (const link of document.querySelectorAll('a[data-te-shorts-hidden]')) {
+      if (link.isConnected) {
+        link.style.display = '';
+        delete link.dataset.teShortsHidden;
+      }
+    }
+  }
+
+  function checkAndRedirectShorts() {
+    if (!settings.shortsBlocked) return false;
+    
+    if (window.location.pathname.startsWith('/shorts/') || window.location.pathname === '/shorts') {
+      console.log('[Thumbnail Eraser] Redirecting from Shorts page');
+      window.location.replace('https://www.youtube.com/');
+      return true;
+    }
+    return false;
+  }
+
   // ---- Scanning & Observing ----
   function scan(root) {
     if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) return;
@@ -137,10 +255,12 @@
     for (const img of root.querySelectorAll('img[src*="ytimg.com/vi"]')) processImg(img);
     // Scan all elements with ytimg.com/vi in style
     for (const el of root.querySelectorAll('[style*="ytimg.com/vi"]')) processBg(el);
+    
+    // Scan for Shorts
+    removeShortsElements(root);
   }
 
   const observer = new MutationObserver((mutations) => {
-    if (!settings.enabled) return;
     for (const m of mutations) {
       if (m.type === 'attributes') {
         if (m.attributeName === 'src') {
@@ -153,6 +273,26 @@
       }
     }
   });
+
+  function startShortsObserver() {
+    if (shortsObserver) return;
+    
+    shortsObserver = new MutationObserver(() => {
+      if (settings.shortsBlocked) removeShortsElements();
+    });
+    
+    shortsObserver.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+    });
+  }
+
+  function stopShortsObserver() {
+    if (shortsObserver) {
+      shortsObserver.disconnect();
+      shortsObserver = null;
+    }
+  }
 
   function revertAll() {
     // Restore <img> elements
@@ -172,6 +312,8 @@
       delete el.dataset.teHonestBgOrig;
       if (ours && el.style.backgroundImage.includes(ours)) el.style.backgroundImage = orig;
     }
+    // Restore Shorts
+    restoreShortsElements();
   }
 
   function start() {
@@ -181,17 +323,58 @@
       attributes: true,
       attributeFilter: ['src', 'style'],
     });
+    startShortsObserver();
+    
     if (settings.enabled) scan(document);
+    if (settings.shortsBlocked) {
+      checkAndRedirectShorts();
+      removeShortsElements();
+    }
+  }
+
+  // ---- DNR Rule Management ----
+  async function setShortsBlocking(enabled) {
+    try {
+      await chrome.declarativeNetRequest.updateEnabledRulesets({
+        enableRulesetIds: enabled ? ['shorts_redirect_rules'] : [],
+        disableRulesetIds: enabled ? [] : ['shorts_redirect_rules']
+      });
+    } catch (e) {
+      console.error('[Thumbnail Eraser] Failed to update DNR rules:', e);
+    }
   }
 
   // ---- Storage & Events ----
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
+    
+    let needsRescan = false;
+    let needsShortsUpdate = false;
+    
     for (const [key, { newValue }] of Object.entries(changes)) {
-      if (key in DEFAULTS) settings[key] = newValue ?? DEFAULTS[key];
+      if (key in DEFAULTS) {
+        settings[key] = newValue ?? DEFAULTS[key];
+        if (key === 'enabled' || key === 'frame') needsRescan = true;
+        if (key === 'shortsBlocked') needsShortsUpdate = true;
+      }
     }
-    revertAll();
-    if (settings.enabled) scan(document);
+    
+    if (needsRescan) {
+      revertAll();
+      if (settings.enabled) scan(document);
+    }
+    
+    if (needsShortsUpdate) {
+      setShortsBlocking(settings.shortsBlocked);
+      if (settings.shortsBlocked) {
+        checkAndRedirectShorts();
+        removeShortsElements();
+        startShortsObserver();
+      } else {
+        restoreShortsElements();
+        stopShortsObserver();
+      }
+    }
   });
 
   // Listen for popup toggle via CustomEvent
@@ -207,9 +390,40 @@
     revertAll();
   });
 
+  window.addEventListener('shortsBlockerStart', () => {
+    settings.shortsBlocked = true;
+    chrome.storage.sync.set({ shortsBlocked: true });
+    setShortsBlocking(true);
+    checkAndRedirectShorts();
+    removeShortsElements();
+    startShortsObserver();
+  });
+  
+  window.addEventListener('shortsBlockerStop', () => {
+    settings.shortsBlocked = false;
+    chrome.storage.sync.set({ shortsBlocked: false });
+    setShortsBlocking(false);
+    restoreShortsElements();
+    stopShortsObserver();
+  });
+
+  // Handle SPA navigation for Shorts redirect
+  let lastUrl = window.location.href;
+  setInterval(() => {
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+      if (settings.shortsBlocked) checkAndRedirectShorts();
+    }
+  }, 500);
+
+  window.addEventListener('popstate', () => {
+    if (settings.shortsBlocked) checkAndRedirectShorts();
+  });
+
   // Initialize
   chrome.storage.sync.get(DEFAULTS, (stored) => {
     settings = { ...DEFAULTS, ...stored };
     start();
+    setShortsBlocking(settings.shortsBlocked);
   });
 })();

@@ -10,6 +10,13 @@ chrome.runtime.onInstalled.addListener(() => {
     documentUrlPatterns: ['*://*.youtube.com/*']
   });
 
+  chrome.contextMenus.create({
+    id: 'toggleShortsBlocker',
+    title: 'Toggle Shorts Blocker',
+    contexts: ['all'],
+    documentUrlPatterns: ['*://*.youtube.com/*']
+  });
+
   // Set initial badge
   updateBadge(false);
 });
@@ -39,6 +46,30 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       console.error('[Thumbnail Eraser] Context menu toggle failed:', err);
     }
   }
+
+  if (info.menuItemId === 'toggleShortsBlocker' && tab?.id) {
+    try {
+      const { shortsBlocked = true } = await chrome.storage.sync.get('shortsBlocked');
+      const newState = !shortsBlocked;
+      
+      await chrome.storage.sync.set({ shortsBlocked: newState });
+      
+      // Inject into the tab
+      if (newState) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectBlockShorts
+        });
+      } else {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectAllowShorts
+        });
+      }
+    } catch (err) {
+      console.error('[Thumbnail Eraser] Shorts context menu toggle failed:', err);
+    }
+  }
 });
 
 // Listen for storage changes to update badge
@@ -65,6 +96,14 @@ function injectReplaceThumbnails() {
 
 function injectRestoreThumbnails() {
   window.dispatchEvent(new CustomEvent('thumbnailEraserStop'));
+}
+
+function injectBlockShorts() {
+  window.dispatchEvent(new CustomEvent('shortsBlockerStart'));
+}
+
+function injectAllowShorts() {
+  window.dispatchEvent(new CustomEvent('shortsBlockerStop'));
 }
 
 // Handle tab updates to sync badge

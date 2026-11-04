@@ -1,29 +1,39 @@
 // Thumbnail Eraser - Popup Script
 // Handles the toggle UI and communicates with content script via chrome.scripting
 
-const toggle = document.getElementById('toggle');
-const statusEl = document.getElementById('status');
+const toggleThumbnails = document.getElementById('toggleThumbnails');
+const statusThumbnails = document.getElementById('statusThumbnails');
+const toggleShorts = document.getElementById('toggleShorts');
+const statusShorts = document.getElementById('statusShorts');
 
 // Load saved state on popup open
 async function loadState() {
   try {
-    const { enabled = false } = await chrome.storage.sync.get('enabled');
-    toggle.checked = enabled;
-    updateStatus(enabled);
+    const { enabled = false, shortsBlocked = true } = await chrome.storage.sync.get(['enabled', 'shortsBlocked']);
+    toggleThumbnails.checked = enabled;
+    toggleShorts.checked = shortsBlocked;
+    updateStatusThumbnails(enabled);
+    updateStatusShorts(shortsBlocked);
   } catch (err) {
     console.error('Failed to load state:', err);
-    statusEl.textContent = 'Error loading state';
+    statusThumbnails.textContent = 'Error loading state';
+    statusShorts.textContent = 'Error loading state';
   }
 }
 
 // Update status text
-function updateStatus(enabled) {
-  statusEl.textContent = enabled ? 'Active: Showing midpoint frames' : 'Inactive: Showing original thumbnails';
-  statusEl.className = 'status' + (enabled ? ' active' : '');
+function updateStatusThumbnails(enabled) {
+  statusThumbnails.textContent = enabled ? 'Active: Showing midpoint frames' : 'Inactive: Showing original thumbnails';
+  statusThumbnails.className = 'status' + (enabled ? ' active' : '');
 }
 
-// Save state and inject/revert on active tab
-async function saveState(enabled) {
+function updateStatusShorts(enabled) {
+  statusShorts.textContent = enabled ? 'Active: Shorts blocked' : 'Inactive: Shorts visible';
+  statusShorts.className = 'status' + (enabled ? ' active' : '');
+}
+
+// Save thumbnails state and inject/revert on active tab
+async function saveThumbnailsState(enabled) {
   try {
     await chrome.storage.sync.set({ enabled: enabled });
     
@@ -45,18 +55,54 @@ async function saveState(enabled) {
       }
     }
     
-    updateStatus(enabled);
+    updateStatusThumbnails(enabled);
   } catch (err) {
-    console.error('Failed to save state:', err);
+    console.error('Failed to save thumbnails state:', err);
     // Revert toggle on error
-    toggle.checked = !enabled;
-    statusEl.textContent = 'Error: Could not apply to this page';
+    toggleThumbnails.checked = !enabled;
+    statusThumbnails.textContent = 'Error: Could not apply to this page';
   }
 }
 
-// Toggle handler
-toggle.addEventListener('change', (e) => {
-  saveState(e.target.checked);
+// Save shorts state and inject/revert on active tab
+async function saveShortsState(enabled) {
+  try {
+    await chrome.storage.sync.set({ shortsBlocked: enabled });
+    
+    // Get the active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (tab?.id && tab.url?.includes('youtube.com')) {
+      // Inject the appropriate function
+      if (enabled) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectBlockShorts
+        });
+      } else {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: injectAllowShorts
+        });
+      }
+    }
+    
+    updateStatusShorts(enabled);
+  } catch (err) {
+    console.error('Failed to save shorts state:', err);
+    // Revert toggle on error
+    toggleShorts.checked = !enabled;
+    statusShorts.textContent = 'Error: Could not apply to this page';
+  }
+}
+
+// Toggle handlers
+toggleThumbnails.addEventListener('change', (e) => {
+  saveThumbnailsState(e.target.checked);
+});
+
+toggleShorts.addEventListener('change', (e) => {
+  saveShortsState(e.target.checked);
 });
 
 // Initialize
@@ -72,4 +118,12 @@ function injectReplaceThumbnails() {
 function injectRestoreThumbnails() {
   // This runs in the page context - dispatch event for content script
   window.dispatchEvent(new CustomEvent('thumbnailEraserStop'));
+}
+
+function injectBlockShorts() {
+  window.dispatchEvent(new CustomEvent('shortsBlockerStart'));
+}
+
+function injectAllowShorts() {
+  window.dispatchEvent(new CustomEvent('shortsBlockerStop'));
 }

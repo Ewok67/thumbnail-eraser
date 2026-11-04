@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "regexSubstitution": "https://www.youtube.com/"
+      }
+    },
+    "condition": {
+      "urlFilter": "||youtube.com/shorts/*",
+      "resourceTypes": ["main_frame"],
+      "domains": ["youtube.com", "www.youtube.com", "m.youtube.com"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "regexSubstitution": "https://www.youtube.com/"
+      }
+    },
+    "condition": {
+      "urlFilter": "||youtube.com/shorts",
+      "resourceTypes": ["main_frame"],
+      "domains": ["youtube.com", "www.youtube.com", "m.youtube.com"]
+    }
+  }
+]

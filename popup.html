@@ -115,6 +115,19 @@
       font-family: inherit;
       font-size: 10px;
     }
+    .divider {
+      height: 1px;
+      background: #333;
+      margin: 8px 0;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #aaa;
+      margin: 8px 0 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
   </style>
 </head>
 <body>
@@ -123,15 +136,30 @@
       <div class="logo">🎬</div>
       <div class="title">Thumbnail Eraser</div>
     </div>
+    
+    <div class="section-title">Thumbnails</div>
     <div class="toggle-container">
-      <span class="toggle-label">Midpoint Thumbnails</span>
+      <span class="toggle-label">Midpoint Frames</span>
       <label class="toggle-switch">
-        <input type="checkbox" id="toggle">
+        <input type="checkbox" id="toggleThumbnails">
         <span class="slider"></span>
       </label>
     </div>
-    <div class="status" id="status">Loading...</div>
-    <div class="info">Uses YouTube's auto-generated midpoint frames (<kbd>1.jpg</kbd>, <kbd>2.jpg</kbd>, <kbd>3.jpg</kbd>) instead of uploaded posters.</div>
+    <div class="status" id="statusThumbnails">Loading...</div>
+
+    <div class="divider"></div>
+
+    <div class="section-title">Shorts</div>
+    <div class="toggle-container">
+      <span class="toggle-label">Block Shorts</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggleShorts">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="status" id="statusShorts">Loading...</div>
+
+    <div class="info">Uses YouTube's auto-generated midpoint frames (<kbd>maxres1/2/3.jpg</kbd>, <kbd>hq1/2/3.jpg</kbd>) instead of uploaded posters.</div>
   </div>
   <script src="popup.js"></script>
 </body>
