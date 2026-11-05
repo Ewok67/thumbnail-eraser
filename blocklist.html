@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forbidden Words List - Thumbnail Eraser</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #1a1a2e;
+      color: #eaeaea;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #333;
+    }
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #ff0000, #cc0000);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-top: 4px;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .input-group {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      gap: 8px;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #333;
+      border-radius: 8px;
+      background: #222;
+      color: #eaeaea;
+      font-size: 14px;
+      outline: none;
+    }
+    input[type="text"]:focus {
+      border-color: #ff0000;
+    }
+    .btn {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #ff0000, #cc0000);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #ff3333, #ff0000);
+    }
+    .btn-secondary {
+      background: #333;
+      color: #eaeaea;
+    }
+    .btn-secondary:hover {
+      background: #444;
+    }
+    .btn-danger {
+      background: #442222;
+      color: #ff6b6b;
+    }
+    .btn-danger:hover {
+      background: #552222;
+    }
+    .word-list {
+      list-style: none;
+    }
+    .word-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .word-item:hover {
+      border-color: #444;
+    }
+    .word-text {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      color: #eaeaea;
+      word-break: break-all;
+    }
+    .word-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 6px;
+      background: #333;
+      color: #aaa;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .icon-btn:hover {
+      background: #444;
+      color: #fff;
+    }
+    .icon-btn.delete:hover {
+      background: #552222;
+      color: #ff6b6b;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+    }
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #333;
+      font-size: 12px;
+      color: #888;
+    }
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 24px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #333;
+      transition: .3s;
+      border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px; width: 18px;
+      left: 3px; bottom: 3px;
+      background-color: #fff;
+      transition: .3s;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    input:checked + .slider {
+      background: linear-gradient(135deg, #ff0000, #cc0000);
+    }
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+    .import-export {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">🚫</div>
+      <div>
+        <div class="title">Forbidden Words</div>
+        <div class="subtitle">URLs containing these words will be redirected to Google</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="input-group">
+        <input type="text" id="wordInput" placeholder="Add a forbidden word..." spellcheck="false">
+        <button class="btn btn-primary" id="addBtn">Add</button>
+      </div>
+    </div>
+
+    <ul class="word-list" id="wordList"></ul>
+
+    <div class="empty-state" id="emptyState" style="display: none;">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+      <p>No forbidden words added yet</p>
+      <p style="font-size: 12px; margin-top: 4px;">Add words above to start blocking</p>
+    </div>
+
+    <div class="import-export">
+      <button class="btn btn-secondary" id="exportBtn">Export List</button>
+      <button class="btn btn-secondary" id="importBtn">Import List</button>
+      <input type="file" id="importFile" accept=".json" style="display: none;">
+    </div>
+
+    <div class="status-bar">
+      <div class="toggle-container">
+        <span>URL Blocker</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="enabledToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <span id="wordCount">0 words</span>
+    </div>
+  </div>
+  <script src="blocklist.js"></script>
+</body>
+</html>

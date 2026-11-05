@@ -5,19 +5,23 @@ const toggleThumbnails = document.getElementById('toggleThumbnails');
 const statusThumbnails = document.getElementById('statusThumbnails');
 const toggleShorts = document.getElementById('toggleShorts');
 const statusShorts = document.getElementById('statusShorts');
+const openBlocklistBtn = document.getElementById('openBlocklistBtn');
+const statusUrlBlocker = document.getElementById('statusUrlBlocker');
 
 // Load saved state on popup open
 async function loadState() {
   try {
-    const { enabled = false, shortsBlocked = true } = await chrome.storage.sync.get(['enabled', 'shortsBlocked']);
+    const { enabled = false, shortsBlocked = true, urlBlockerEnabled = true } = await chrome.storage.sync.get(['enabled', 'shortsBlocked', 'urlBlockerEnabled']);
     toggleThumbnails.checked = enabled;
     toggleShorts.checked = shortsBlocked;
     updateStatusThumbnails(enabled);
     updateStatusShorts(shortsBlocked);
+    updateStatusUrlBlocker(urlBlockerEnabled);
   } catch (err) {
     console.error('Failed to load state:', err);
     statusThumbnails.textContent = 'Error loading state';
     statusShorts.textContent = 'Error loading state';
+    statusUrlBlocker.textContent = 'Error loading state';
   }
 }
 
@@ -30,6 +34,11 @@ function updateStatusThumbnails(enabled) {
 function updateStatusShorts(enabled) {
   statusShorts.textContent = enabled ? 'Active: Shorts blocked' : 'Inactive: Shorts visible';
   statusShorts.className = 'status' + (enabled ? ' active' : '');
+}
+
+function updateStatusUrlBlocker(enabled) {
+  statusUrlBlocker.textContent = enabled ? 'Active: Blocking forbidden words' : 'Inactive: URL blocker off';
+  statusUrlBlocker.className = 'status' + (enabled ? ' active' : '');
 }
 
 // Save thumbnails state and inject/revert on active tab
@@ -105,8 +114,21 @@ toggleShorts.addEventListener('change', (e) => {
   saveShortsState(e.target.checked);
 });
 
+// Open blocklist page
+openBlocklistBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('blocklist.html') });
+});
+
 // Initialize
 loadState();
+
+// Listen for storage changes from other contexts
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync') return;
+  if (changes.enabled) updateStatusThumbnails(changes.enabled.newValue);
+  if (changes.shortsBlocked) updateStatusShorts(changes.shortsBlocked.newValue);
+  if (changes.urlBlockerEnabled) updateStatusUrlBlocker(changes.urlBlockerEnabled.newValue);
+});
 
 // --- Injected functions (must be self-contained, no closures) ---
 
