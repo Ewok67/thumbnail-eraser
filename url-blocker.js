@@ -5,14 +5,8 @@
   'use strict';
 
   const STORAGE_KEY = 'forbiddenWords';
-  const DEFAULT_WORDS = [
-    'casino', 'gambling', 'betting', 'poker', 'slots',
-    'malware', 'phishing', 'scam', 'fraud',
-    'adult', 'porn', 'xxx', 'sex',
-    'drugs', 'cocaine', 'heroin', 'meth'
-  ];
 
-  let forbiddenWords = [...DEFAULT_WORDS];
+  let forbiddenWords = [];
   let enabled = true;
 
   // Load settings from storage
@@ -45,7 +39,7 @@
   // Redirect to google.com
   function redirectToGoogle(matchedWord) {
     console.log(`[URL Blocker] Blocked navigation: matched "${matchedWord}"`);
-    window.location.replace('https://www.google.com/search?q=blocked+' + encodeURIComponent(matchedWord));
+    window.location.replace('https://www.google.com/');
   }
 
   // Main check function
